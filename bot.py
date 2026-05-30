@@ -145,7 +145,7 @@ def calc_bj(hand):
 @bot.tree.command(name="blackjack", description="Play 21!")
 async def blackjack(interaction: discord.Interaction, bet: str):
     uid = str(interaction.user.id)
-    can, msg = await can_//play(uid)
+    can, msg = await can_play(uid)
     if not can: return await interaction.response.send_message(msg, ephemeral=True)
     
     amt = suffix_to_int(bet)
