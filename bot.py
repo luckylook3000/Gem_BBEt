@@ -201,7 +201,7 @@ async def blackjack(interaction: discord.Interaction, bet: str):
             
             update_bal(str(self.user), -self.bet)
             self.bet *= 2
-            self.first_//move = False
+            self.first_move = False
             self.p.append(get_card())
             if calc_bj(self.p) > 21:
                 await inter.response.edit_message(content=f"💥 **BUST!** Lost {add_suffix(self.bet)} gems.", embed=None, view=None)
