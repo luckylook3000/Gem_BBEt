@@ -1,25 +1,37 @@
 import os
+import sys
+import subprocess
+
+# ==========================================
+# 🚨 FORCE INSTALLER (Kills all Build Errors)
+# ==========================================
+def force_install():
+    try:
+        import discord
+    except ImportError:
+        print("📦 Installing libraries... please wait...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "discord.py", "python-dotenv"])
+        print("✅ Libraries installed! Restarting...")
+        os.execv(sys.executable, ['python'] + sys.argv)
+
+force_install()
+
 import discord
 import random
 import asyncio
 import json
 import time
-from discord import app_commands
+from discord import app_commands, Interaction, Embed
 from discord.ext import commands
 from discord.ui import Button, View
 
 # ==========================================
-# CONFIG & TOKEN
+# 1. TOKEN (PASTE YOUR TOKEN INSIDE THE QUOTES)
 # ==========================================
-# Pulls directly from Replit Secrets 🔒
-TOKEN = os.environ.get("TOKEN")
-
-if not TOKEN:
-    print("❌ ERROR: Secret 'TOKEN' not found. Please add it to the lock icon.")
-    exit()
+TOKEN = "MTUwOTE2NDY1MzUxNzk5NjIxMw.GjXQNY.dBLy5_QU_4BfRS72SBaeVhv4tgN7Z--9tItlxs" 
 
 # ==========================================
-# ECONOMY SYSTEM (Auto-creates data.json)
+# 2. AUTO-DATABASE (Start Balance = 0)
 # ==========================================
 DB_FILE = "data.json"
 
@@ -33,13 +45,14 @@ def save_db(data):
 
 def get_bal(uid):
     data = load_db()
-    return data['users'].get(str(uid), {}).get("Gems", 1000)
+    # CHANGED: New users now start with 0, not 1000
+    return data['users'].get(str(uid), {}).get("Gems", 0)
 
 def update_bal(uid, amt):
     data = load_db()
     uid = str(uid)
     if uid not in data['users']:
-        data['users'][uid] = {"Gems": 1000}
+        data['users'][uid] = {"Gems": 0} # CHANGED: Starting balance is 0
     data['users'][uid]['Gems'] += amt
     save_db(data)
     return data['users'][uid]['Gems']
@@ -59,7 +72,7 @@ def suffix_to_int(s):
     return int(s)
 
 # ==========================================
-# GAME LOCKS
+# 3. GAME LOCKS & COOLDOWNS
 # ==========================================
 active_games = {}
 game_cooldowns = {}
@@ -73,7 +86,7 @@ async def can_play(user_id):
     return True, None
 
 # ==========================================
-# BOT SETUP
+# 4. BOT CORE
 # ==========================================
 class GemBetBot(commands.Bot):
     def __init__(self):
@@ -84,7 +97,7 @@ class GemBetBot(commands.Bot):
 
     async def setup_hook(self):
         await self.tree.sync()
-        print("✅ Commands Synced!")
+        print("✅ Slash commands synced!")
 
 bot = GemBetBot()
 
@@ -96,14 +109,24 @@ def get_embed(title, desc, color=0x3471eb):
 @bot.command()
 async def sync(ctx):
     await bot.tree.sync(guild=ctx.guild)
-    await ctx.send("🚀 **Synced! Restart Discord (Ctrl+R) and use `/`**")
+    await ctx.send("🚀 **Commands Synced! Restart Discord (Ctrl+R).**")
 
-# --- COMMANDS ---
+# --- ECONOMY ---
 @bot.tree.command(name="balance", description="Check your gems")
 async def balance(interaction: discord.Interaction, user: discord.Member = None):
     uid = str((user or interaction.user).id)
     await interaction.response.send_message(embed=get_embed("💰 Balance", f"{user or interaction.user} has **{add_suffix(get_bal(uid))}** gems.", 0x00ff00))
 
+@bot.tree.command(name="tip", description="Tip a user")
+async def tip(interaction: discord.Interaction, member: discord.Member, amount: str):
+    uid = str(interaction.user.id)
+    amt = suffix_to_int(amount)
+    if get_bal(uid) < amt: return await interaction.response.send_message("❌ Not enough gems!", ephemeral=True)
+    update_bal(uid, -amt)
+    update_bal(str(member.id), amt)
+    await interaction.response.send_message(embed=get_embed("💸 Tip Sent", f"{interaction.user.mention} tipped {member.mention} **{add_suffix(amt)}** gems!", 0xf1c40f))
+
+# --- GAMES ---
 @bot.tree.command(name="dice", description="Bet on high or low")
 @app_commands.choices(choice=[app_commands.Choice(name="High", value="high"), app_commands.Choice(name="Low", value="low")])
 async def dice(interaction: discord.Interaction, bet: str, choice: str):
@@ -126,7 +149,7 @@ async def dice(interaction: discord.Interaction, bet: str, choice: str):
         update_bal(uid, amt * 2)
         res, col = f"🎉 **WIN!** Rolled {roll}. Won **{add_suffix(amt*2)}** gems!", 0x00ff00
     else:
-        res, col = f"💀 **LOSS!** Rolled {roll}. Lost **{add_suffix(amt)}** gems!", 0xff0000
+        res, col = f"💀 **LOSS!** Rolled {roll}. Lost **{add_//suffix(amt)}** gems!", 0xff0000
     
     await interaction.edit_original_response(embed=get_embed("🎲 Result", f"{res}\nBalance: **{add_suffix(get_bal(uid))}**", col))
     del active_games[uid]
@@ -179,6 +202,21 @@ async def blackjack(interaction: discord.Interaction, bet: str):
             game_cooldowns[str(self.user)] = time.time()
 
     await interaction.response.send_message(f"🃏 **Blackjack!** Your hand: `{p}` (Total: {sum(p)})\nDealer shows: `{d[0]}`", view=BJView(interaction.user.id, amt, p, d))
+
+# --- MODS ---
+@bot.tree.command(name="add", description="[MOD] Add gems")
+async def add(interaction: discord.Interaction, member: discord.Member, amount: str):
+    if not interaction.user.guild_permissions.administrator: return await interaction.response.send_message("❌ No permission!", ephemeral=True)
+    amt = suffix_to_int(amount)
+    update_bal(str(member.id), amt)
+    await interaction.response.send_message(embed=get_embed("➕ Added", f"Added **{add_suffix(amt)}** to {member.mention}", 0x00ff00))
+
+@bot.tree.command(name="remove", description="[MOD] Remove gems")
+async def remove(interaction: discord.Interaction, member: discord.Member, amount: str):
+    if not interaction.user.guild_permissions.administrator: return await interaction.response.send_message("❌ No permission!", ephemeral=True)
+    amt = suffix_to_int(amount)
+    update_bal(str(member.id), -amt)
+    await interaction.response.send_message(embed=get_embed("➖ Removed", f"Removed **{add_suffix(amt)}** from {member.mention}", 0xff0000))
 
 @bot.event
 async def on_ready():
